@@ -24,7 +24,7 @@ services:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://51.68.93.193:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://51.161.80.20:9092
       KAFKA_METRIC_REPORTERS: io.confluent.metrics.reporter.ConfluentMetricsReporter
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
@@ -101,7 +101,7 @@ services:
       CONTROL_CENTER_BOOTSTRAP_SERVERS: 'broker:29092'
       CONTROL_CENTER_CONNECT_CLUSTER: 'connect:8083'
       CONTROL_CENTER_KSQL_KSQLDB1_URL: "http://ksqldb-server:8088"
-      CONTROL_CENTER_KSQL_KSQLDB1_ADVERTISED_URL: "http://51.68.93.193:8088"
+      CONTROL_CENTER_KSQL_KSQLDB1_ADVERTISED_URL: "http://51.161.80.20:8088"
       CONTROL_CENTER_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
       CONTROL_CENTER_REPLICATION_FACTOR: 1
       CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 1
@@ -178,3 +178,129 @@ services:
       KAFKA_REST_BOOTSTRAP_SERVERS: 'broker:29092'
       KAFKA_REST_LISTENERS: "http://0.0.0.0:8082"
       KAFKA_REST_SCHEMA_REGISTRY_URL: 'http://schema-registry:8081'
+      
+      
+  cassandra:
+    image: docker.io/bitnami/cassandra:3-debian-10
+    ports:
+      - 7000:7000
+      - 9042:9042
+    volumes:
+      - cassandra_data:/bitnami
+    environment:
+      - CASSANDRA_SEEDS=cassandra,cassandra2
+      - CASSANDRA_CLUSTER_NAME=cassandra-cluster
+      - CASSANDRA_PASSWORD_SEEDER=yes
+      - CASSANDRA_PASSWORD=cassandra
+      # By default, Cassandra autodetects the available host memory and takes as much as it can.
+      # Therefore, memory options are mandatory if multiple Cassandras are launched in the same node.
+      - MAX_HEAP_SIZE=2G
+      - HEAP_NEWSIZE=200M
+  cassandra2:
+    image: docker.io/bitnami/cassandra:3-debian-10
+    ports:
+      - 7001:7000
+      - 9043:9042
+    volumes:
+      - cassandra2_data:/bitnami
+    environment:
+      - CASSANDRA_SEEDS=cassandra,cassandra2
+      - CASSANDRA_CLUSTER_NAME=cassandra-cluster
+      - CASSANDRA_PASSWORD=cassandra
+      # By default, Cassandra autodetects the available host memory and takes as much as it can.
+      # Therefore, memory options are mandatory if multiple Cassandras are launched in the same node.
+      - MAX_HEAP_SIZE=2G
+      - HEAP_NEWSIZE=200M
+      # A web based interface for managing your docker containers
+
+  mongodb:
+    image: mongo:latest
+    hostname: mongodb
+    environment:
+      - MONGO_DATA_DIR=/data/db
+      - MONGO_LOG_DIR=/dev/null
+      - MONGODB_USER=test
+      - MONGODB_DATABASE=test_db
+      - MONGODB_PASS=bigdata_test
+    volumes:
+      - ./data/db:/data/db
+    ports:
+      - 27017:27017
+elasticsearch:
+    build:
+      context: elasticsearch/
+      args:
+        ELK_VERSION: $ELK_VERSION
+    volumes:
+      - type: bind
+        source: ./elasticsearch/config/elasticsearch.yml
+        target: /usr/share/elasticsearch/config/elasticsearch.yml
+        read_only: true
+      - type: volume
+        source: elasticsearch
+        target: /usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      ES_JAVA_OPTS: "-Xmx256m -Xms256m"
+      ELASTIC_PASSWORD: changeme
+      # Use single node discovery in order to disable production mode and avoid bootstrap checks.
+      # see: https://www.elastic.co/guide/en/elasticsearch/reference/current/bootstrap-checks.html
+      discovery.type: single-node
+    networks:
+      - elk
+
+  logstash:
+    build:
+      context: logstash/
+      args:
+        ELK_VERSION: $ELK_VERSION
+    volumes:
+      - type: bind
+        source: ./logstash/config/logstash.yml
+        target: /usr/share/logstash/config/logstash.yml
+        read_only: true
+      - type: bind
+        source: ./logstash/pipeline
+        target: /usr/share/logstash/pipeline
+        read_only: true
+    ports:
+      - "5044:5044"
+      - "5000:5000/tcp"
+      - "5000:5000/udp"
+      - "9600:9600"
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    networks:
+      - elk
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    build:
+      context: kibana/
+      args:
+        ELK_VERSION: $ELK_VERSION
+    volumes:
+      - type: bind
+        source: ./kibana/config/kibana.yml
+        target: /usr/share/kibana/config/kibana.yml
+        read_only: true
+    ports:
+      - "5601:5601"
+    networks:
+      - elk
+    depends_on:
+      - elasticsearch
+
+networks:
+  elk:
+    driver: bridge
+
+volumes:
+  elasticsearch:
+  cassandra_data:
+    driver: local
+  cassandra2_data:
+    driver: local
